@@ -1,0 +1,6 @@
+{
+    "token": "bot_token",
+    "password": "bot_password",
+    "admins_id": ["admins_id"],
+    "owners_id": ["owners_id"]
+}

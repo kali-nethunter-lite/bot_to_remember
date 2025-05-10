@@ -1,0 +1,367 @@
+from aiogram import F, Router, Bot
+from aiogram.types import Message, CallbackQuery
+from aiogram.filters import Command, CommandStart, Filter
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.utils.text_decorations import markdown_decoration as md
+from app.database.models import User
+from app.database.models import async_session
+from app.database.system import admins_id, password, owners_id
+from sqlalchemy import select
+from logger import logger
+
+import re
+import logging
+import app.keyboards as kb
+import app.database.requests as rq
+
+router = Router()
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class AddUser(StatesGroup):
+    fio = State()
+    number = State()
+    email = State()
+    adres = State()
+    dr = State()
+    info = State()
+
+class SearchFilter(Filter):
+    async def __call__(self, message: Message) -> bool:
+        user_state = await rq.get_user_state(message.from_user.id)
+        return user_state in ["input_number", "input_fio"]
+
+class UserActions(StatesGroup):
+    input_password = State()
+
+@router.message(CommandStart())
+async def cmd_start(message: Message, state: FSMContext):
+    await state.clear()
+    await rq.set_user(message.from_user.id, message.from_user.username)
+    await rq.set_user_state(message.from_user.id, "start_bot")
+    user_id = message.from_user.id
+    logger.info(f"\n\nПользователь @{message.from_user.username}\nID: {message.from_user.id}\nИмя: {message.from_user.first_name}\nФамилия: {message.from_user.last_name}\nИспользовал команду /start\n")
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.tg_id == user_id))
+        if not user:
+            user = User(tg_id=user_id, attempts=3)
+            session.add(user)
+            await session.commit()
+        if user.attempts <= 0:
+            await message.answer("Доступ запрещен. Попытки закончились.")
+            return
+    if await rq.banned_user(user_id):
+        logger.warning(f"\nПользователь @{message.from_user.username} ID: {message.from_user.id} попытался использовать бот в бане.\n")
+    elif message.from_user.id in admins_id:
+        await message.answer('Приветствую Вас в 141 отряде.', reply_markup=kb.admin_menu)
+    else:
+        await message.answer("Введите пароль для доступа к боту:")
+        await rq.set_user_state(message.from_user.id, 'login')
+        await state.set_state(UserActions.input_password)
+
+
+@router.message(UserActions.input_password)
+async def check_password(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    logger.info(f"\n\nПользователь @{message.from_user.username} ID: {message.from_user.id} ввел пароль: {message.text}\n")
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.tg_id == user_id))
+        attempts = user.attempts
+        if message.text == password:
+            await message.answer("Пароль верный. Добро пожаловать!", reply_markup=kb.menu)
+            user.attempts = 3
+            await session.commit()
+            await state.clear()
+            await rq.set_user_state(message.from_user.id, 'good_login')
+        else:
+            attempts -= 1
+            if attempts > 0:
+                await message.answer(f"Неверный пароль. Осталось попыток: {attempts}.")
+                user.attempts = attempts
+                await session.commit()
+            elif attempts <= 0:
+                await message.answer("Попытки закончились. Доступ закрыт")
+                await session.commit()
+                await state.clear
+
+
+@router.message(Command("unbanme"))
+async def unban_me(message: Message):
+    if message.from_user.id in owners_id:
+        success = await rq.unban_user(message.from_user.id)
+        if success:
+            await message.answer("Вы успешно себя разбанили!")
+        else:
+            await message.answer("Вы не забанены.")
+
+@router.message(SearchFilter())
+async def handle_search_message(message: Message):
+    user_state = await rq.get_user_state(message.from_user.id)
+    await handle_search(message, user_state)
+
+async def handle_search(message: Message, user_state: str):
+    await rq.set_user(message.from_user.id, message.from_user.username)
+    if await rq.banned_user(message.from_user.id):
+        logger.warning(f"\nПользователь @{message.from_user.username} ID: {message.from_user.id} попытался использовать бот в бане.\n")
+    else:
+        if user_state == "input_number":
+            number = message.text.replace(" ", "").replace("+", "").replace("-", "").replace("(", "").replace(")", "")
+            if number.startswith("0") and len(number) == 10:
+                number = "38" + number
+            elif number.startswith("38") and len(number) == 12:
+                pass
+
+            username = message.from_user.username
+            logger.info(f"\nПользователь @{username} ID: {message.from_user.id} искал: {number}\n")
+
+            if re.fullmatch(r"38\d{10}", number):
+                users_info = await rq.search_by_number(number)
+                if users_info:
+                    response = "Найдена следующая информация:\n\n"
+                    for user in users_info:
+                        if user.number != None:
+                            user.number = "+" + str(user.number)
+                        response += (
+                            f"ФИО: {user.fio}\n"
+                            f"Номер: {user.number}\n"
+                            f"Email: {user.email}\n"
+                            f"Адрес: {user.adres}\n"
+                            f"Дата рождения: {user.dr}\n"
+                            f"Прочая информация: {user.info}\n\n\n")
+                    await message.answer(response, reply_markup=kb.back_keyboard)
+                else:
+                    await message.answer("Пользователь не найден.", reply_markup=kb.back_keyboard)
+            else:
+                await message.answer("Неверный формат, попробуйте снова.")
+
+        elif user_state == "input_fio":
+            looking_fio = message.text.strip()
+            username = message.from_user.username
+            logger.info(f"\n\nПользователь @{username} ID: {message.from_user.id} искал: {looking_fio}\n")
+            users = await rq.search_by_fio(looking_fio)
+            if users:
+                response = "Найдена следующая информация:\n\n"
+                for user in users:
+                    if user.number != None:
+                        user.number = "+" + str(user.number)
+                    response += (
+                        f"ФИО: {user.fio}\n"
+                        f"Номер: {user.number}\n"
+                        f"Email: {user.email}\n"
+                        f"Адрес: {user.adres}\n"
+                        f"Дата рождения: {user.dr}\n"
+                        f"Прочая информация: {user.info}\n\n\n")
+                await message.answer(response, reply_markup=kb.back_keyboard)
+            else:
+                await message.answer("Пользователь не найден.", reply_markup=kb.back_keyboard)
+
+@router.callback_query(F.data == "search_number")
+async def search_number(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    user_state = await rq.get_user_state(callback.from_user.id)
+    if await rq.banned_user(user_id):
+        logger.warning(f"\n\nВнимание! Пользователь: @{callback.from_user.username}, ID: {callback.from_user.id}\nПопытался использовать бот в бане.\n")
+    elif user_state == "login":
+        await callback.answer("Для доступа введите пароль!")
+        logger.warning(f"\n\nВнимание! Пользователь: @{callback.from_user.username}, ID: {callback.from_user.id}\nПопытался обойти пароль.\n")
+    else:
+        await callback.answer('')
+        await callback.message.answer("Введите номер телефона: 380ХХХХХХХХХ")
+        await rq.set_user_state(callback.from_user.id, "input_number")
+
+@router.callback_query(F.data == "search_fio")
+async def search_fio(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    user_state = await rq.get_user_state(callback.from_user.id)
+    if await rq.banned_user(user_id):
+        logger.warning(f"\n\nВнимание! Пользователь: @{callback.from_user.username}, ID: {callback.from_user.id}\nПопытался использовать бот в бане.\n")
+    elif user_state == "login":
+        await callback.answer("Для доступа введите пароль!")
+        logger.warning(f"\n\nВнимание! Пользователь: @{callback.from_user.username}, ID: {callback.from_user.id}\nПопытался обойти пароль.\n")
+    else:
+        await callback.answer('')
+        await callback.message.answer("Введите ФИО или Фамилию:")
+        await rq.set_user_state(callback.from_user.id, "input_fio")
+
+@router.callback_query(F.data == "back_to_main")
+async def back_to_main(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    user_id = callback.from_user.id
+    if await rq.banned_user(user_id):
+        await callback.answer('')
+        logger.warning(f"\n\nВнимание! Пользователь: @{callback.from_user.username}, ID: {callback.from_user.id}\nПопытался использовать бот в бане.\n")
+    else:
+        await callback.answer('')
+        await rq.set_user_state(callback.from_user.id, "menu")
+        if user_id in admins_id:
+            await callback.message.delete()
+            await callback.message.answer("---------- Главное меню ----------\n\nВыберите действие:", reply_markup=kb.admin_menu)
+        else:
+            await callback.message.delete()
+            await callback.message.answer("---------- Главное меню ----------\n\nВыберите действие:", reply_markup=kb.menu)
+
+
+@router.callback_query(F.data == "admin_panel")
+async def admin_panel(callback: CallbackQuery, state: FSMContext):
+    await rq.set_user_state(callback.from_user.id, "admin_panel")
+    await state.clear()
+    if await rq.banned_user(callback.from_user.id):
+        logger.warning(f"\n\nВнимание! Админ @{callback.from_user.username}, ID: {callback.from_user.id}\nПопытался использовать бот в бане.\n")
+    else:
+        await callback.answer('')
+        await callback.message.delete()
+        await callback.message.answer("Панель администратора", reply_markup=kb.admin_panel)
+
+@router.callback_query(F.data == "add_user")
+async def add_user_start(callback: CallbackQuery, state: FSMContext):
+    await rq.set_user_state(callback.from_user.id, "add_users")
+    await state.clear()
+    if await rq.banned_user(callback.from_user.id):
+        logger.warning(f"\n\nВнимание! Админ @{callback.from_user.username}, ID: {callback.from_user.id}\nПопытался использовать бот в бане.\n")
+    else:
+        await callback.answer('')
+        await callback.message.answer("Введите ФИО пользователя:")
+        await state.set_state(AddUser.fio)
+
+@router.message(AddUser.fio)
+async def add_user_fio(message: Message, state: FSMContext):
+    await state.update_data(fio=message.text)
+    await message.answer("Введите номер телефона:\nФормат: 380123456789")
+    await state.set_state(AddUser.number)
+
+@router.message(AddUser.number)
+async def add_user_phone(message: Message, state: FSMContext):
+    await state.update_data(number=message.text)
+    await message.answer("Введите email:")
+    await state.set_state(AddUser.email)
+
+@router.message(AddUser.email)
+async def add_user_email(message: Message, state: FSMContext):
+    await state.update_data(email=message.text)
+    await message.answer("Введите адрес:")
+    await state.set_state(AddUser.adres)
+
+@router.message(AddUser.adres)
+async def add_user_address(message: Message, state: FSMContext):
+    await state.update_data(adres=message.text)
+    await message.answer("Введите дату рождения\nФормат: ДД.ММ.ГГГГ")
+    await state.set_state(AddUser.dr)
+
+@router.message(AddUser.dr)
+async def add_user_birthdate(message: Message, state: FSMContext):
+    await state.update_data(dr=message.text)
+    await message.answer("Введите дополнительную информацию:")
+    await state.set_state(AddUser.info)
+
+@router.message(AddUser.info)
+async def add_user_info(message: Message, state: FSMContext):
+    await state.update_data(info=message.text)
+    data = await state.get_data()
+    admin_username = message.from_user.username
+    admin_id = message.from_user.id
+    logger.info(f"\n\nАдминистратор @{admin_username}, ID: {admin_id} добавил пользователя: {data}\n")
+    await rq.add_user_info(data)
+    await message.answer("Пользователь успешно добавлен!", reply_markup=kb.admin_panel)
+    await state.clear()
+
+
+class AdminActions(StatesGroup):
+    ban_user = State()
+    unban_user = State()
+
+@router.callback_query(F.data == "ban_user")
+async def ban_user_start(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    user_id = callback.from_user.id
+    if await rq.banned_user(user_id):
+        logger.warning(f"\n\nВнимание! Админ @{callback.from_user.username} ID: {callback.from_user.id}\nПопытался использовать бот в бане.\n")
+    else:
+        await callback.answer('')
+        await rq.set_user_state(callback.from_user.id, "ban_user")
+        unbanned_users = await rq.get_unbanned_users()
+        user_list = []
+        for tg_id, tg_name in unbanned_users:
+            safe_name = md.quote(tg_name) if tg_name else "Юзернейм отсутствует"
+            user_list.append(f"ID: `{tg_id}`, Юзернейм: {safe_name}")
+        await callback.message.answer("Список пользователей без бана:\n" + "\n".join(user_list) + "\n\nВведите ID пользователя для бана:", reply_markup=kb.back_to_admin_menu, parse_mode="MarkdownV2")
+        await state.set_state(AdminActions.ban_user)
+
+@router.callback_query(F.data == "unban_user")
+async def unban_user_start(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    user_id = callback.from_user.id
+    if await rq.banned_user(user_id):
+        logger.warning(f"\n\nВнимание! Админ @{callback.from_user.username} ID: {callback.from_user.id}\nПопытался использовать бот в бане.\n")
+    else:
+        await callback.answer('')
+        await rq.set_user_state(callback.from_user.id, "unban_user")
+        banned_users = await rq.get_banned_users()
+        user_list = []
+        for tg_id, tg_name in banned_users:
+            safe_name = md.quote(tg_name) if tg_name else "Юзернейм отсутствует"
+            user_list.append(f"ID: `{tg_id}`, Юзернейм: {safe_name}")
+        await callback.message.answer("Список пользователей без бана:\n" + "\n".join(user_list) + "\n\nВведите ID пользователя для бана:", reply_markup=kb.back_to_admin_menu, parse_mode="MarkdownV2")
+        await state.set_state(AdminActions.unban_user)
+
+@router.message(AdminActions.ban_user)
+async def ban_user_by_id(message: Message, state: FSMContext):
+    if message.from_user.id not in admins_id:
+        logger.warning(f"\n\nПользователь @{message.from_user.username} ID: {message.from_user.id}\nПопытался использовать команду администратора.\n")
+        return
+    try:
+        user_id_to_ban = int(message.text)
+        admin_username = message.from_user.username
+        admin_id = message.from_user.id
+        already = await rq.banned_user(user_id_to_ban)
+        if user_id_to_ban in owners_id and admin_id not in owners_id:
+            await message.answer("У Вас не хватает прав для этого действия!", reply_markup=kb.back_to_admin_menu)
+            logger.warning(f"\n\n!!!!!ВНИМАНИЕ!!!!!\nАдминистратор @{admin_username} ID: {admin_id} попытался забанить ВЛАДЕЛЬЦА с ID: {user_id_to_ban}\n")
+        elif user_id_to_ban in owners_id and admin_id in owners_id:
+            success = await rq.ban_user(user_id_to_ban)
+            if already:
+                await message.answer(f"ВЛАДЕЛЕЦ `{user_id_to_ban}` уже забанен", reply_markup=kb.back_to_admin_menu, parse_mode="MarkdownV2")
+                logger.info(f"\n\nВЛАДЕЛЕЦ @{admin_username} ID: {admin_id} попытался забанить уже забаненого ВЛАДЕЛЬЦА с ID: {user_id_to_ban}\n")
+            elif success:
+                await message.answer(f"Внимание\\! Вы забанили одного из ВЛАДЕЛЬЦЕВ бота\nID: `{user_id_to_ban}`", reply_markup=kb.back_to_admin_menu, parse_mode="MarkdownV2")
+                logger.info(f"\n\nВЛАДЕЛЕЦ @{admin_username} ID: {admin_id} забанил ВЛАДЕЛЬЦА с ID: {user_id_to_ban}\n")
+            else:
+                await message.answer(f"Пользователь `{user_id_to_ban}` не найден в базе данных", reply_markup=kb.back_to_admin_menu, parse_mode="MarkdownV2")
+                logger.info(f"\n\nВЛАДЕЛЕЦ @{admin_username} ID: {admin_id} попытался забанить ВЛАДЕЛЬЦА с ID: {user_id_to_ban}\n")
+        else:
+            success = await rq.ban_user(user_id_to_ban)
+            if already:
+                await message.answer(f"Пользователь `{user_id_to_ban}` уже забанен", reply_markup=kb.back_to_admin_menu, parse_mode="MarkdownV2")
+                logger.info(f"\n\nАдминистратор @{admin_username} ID: {admin_id} попытался забанить уже забаненого пользователя с ID: {user_id_to_ban}\n")
+            elif success:
+                await message.answer(f"Пользователь `{user_id_to_ban}` успешно забанен", reply_markup=kb.back_to_admin_menu, parse_mode="MarkdownV2")
+                logger.info(f"\n\nАдминистратор @{admin_username} ID: {admin_id} забанил пользователя с ID: {user_id_to_ban}\n")
+            else:
+                await message.answer(f"Пользователь `{user_id_to_ban}` не найден в базе данных", reply_markup=kb.back_to_admin_menu, parse_mode="MarkdownV2")
+                logger.info(f"\n\nАдминистратор @{admin_username} ID: {admin_id} попытался забанить пользователя с ID: {user_id_to_ban}\n")
+    except ValueError:
+        await message.answer("Неверный формат. Введите числовой ID:", reply_markup=kb.back_to_admin_menu)
+
+@router.message(AdminActions.unban_user)
+async def unban_user_by_id(message: Message, state: FSMContext):
+    if message.from_user.id not in admins_id:
+        logger.warning(f"\n\nПользователь @{message.from_user.username} ID: {message.from_user.id}\nПопытался использовать команду администратора.\n")
+        return
+    try:
+        user_id_to_unban = int(message.text)
+        admin_username = message.from_user.username
+        admin_id = message.from_user.id
+        already = await rq.banned_user(user_id_to_unban)
+        success = await rq.unban_user(user_id_to_unban)
+        if not already:
+            await message.answer(f"Пользователь `{user_id_to_unban}` уже разбанен", reply_markup=kb.back_to_admin_menu, parse_mode="MarkdownV2")
+            logger.info(f"\n\nАдминистратор @{admin_username} ID: {admin_id} попытался разбанить уже разбаненого пользователя с ID: {user_id_to_unban}\n")
+        elif success:
+            await message.answer(f"Пользователь `{user_id_to_unban}` успешно разбанен", reply_markup=kb.back_to_admin_menu, parse_mode="MarkdownV2")
+            logger.info(f"\n\nАдминистратор @{admin_username} ID: {admin_id} разбанил пользователя с ID: {user_id_to_unban}\n")
+        else:
+            await message.answer(f"Пользователь `{user_id_to_unban}` не найден в базе данных", reply_markup=kb.back_to_admin_menu, parse_mode="MarkdownV2")
+            logger.info(f"\n\nАдминистратор @{admin_username} ID: {admin_id} попытался разбанить пользователя с ID: {user_id_to_unban}\n")
+    except ValueError:
+        await message.answer("Неверный формат. Введите числовой ID.", reply_markup=kb.back_to_admin_menu)
+
+
