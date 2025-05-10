@@ -55,7 +55,7 @@ async def cmd_start(message: Message, state: FSMContext):
     if await rq.banned_user(user_id):
         logger.warning(f"\nПользователь @{message.from_user.username} ID: {message.from_user.id} попытался использовать бот в бане.\n")
     elif message.from_user.id in admins_id:
-        await message.answer('Приветствую Вас в 141 отряде.', reply_markup=kb.admin_menu)
+        await message.answer('Приветствую Вас в нашей команде.', reply_markup=kb.admin_menu)
     else:
         await message.answer("Введите пароль для доступа к боту:")
         await rq.set_user_state(message.from_user.id, 'login')
