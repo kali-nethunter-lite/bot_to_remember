@@ -10,7 +10,7 @@ def check_and_install_packages():
         try:
             importlib.import_module(package)
         except ImportError:
-            print(f"📦 Установка пакета: {package}")
+            print(f"📦 Встановлення пакету: {package}")
             subprocess.check_call([sys.executable, "-m", "pip", "install", package], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 check_and_install_packages()
 
@@ -31,7 +31,7 @@ async def main():
     try:
         await dp.start_polling(bot)
     except KeyboardInterrupt:
-        logger.info("Бот завершает работу...")
+        logger.info("Бот завершує роботу...")
     finally:
         await bot.session.close()
 
@@ -39,5 +39,4 @@ if __name__ == '__main__':
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("\n--------------------Бот выключен--------------------\n")
-
+        logger.info("\n--------------------Бот вимкнено--------------------\n")
