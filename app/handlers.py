@@ -42,7 +42,7 @@ async def cmd_start(message: Message, state: FSMContext):
     await rq.set_user(message.from_user.id, message.from_user.username)
     await rq.set_user_state(message.from_user.id, "start_bot")
     user_id = message.from_user.id
-    logger.info(f"\n\nПользователь @{message.from_user.username}\nID: {message.from_user.id}\nИмя: {message.from_user.first_name}\nФамилия: {message.from_user.last_name}\nИспользовал команду /start\n")
+    logger.info(f"\n\nКористувач @{message.from_user.username}\nID: {message.from_user.id}\nІм'я: {message.from_user.first_name}\nПрізвище: {message.from_user.last_name}\nВикористав команду /start\n")
     async with async_session() as session:
         user = await session.scalar(select(User).where(User.tg_id == user_id))
         if not user:
@@ -50,10 +50,10 @@ async def cmd_start(message: Message, state: FSMContext):
             session.add(user)
             await session.commit()
         if user.attempts <= 0:
-            await message.answer("Доступ заборонено. Спроби скінчилися.")
+            await message.answer("Доступ заборонено. Спроби закінчилися.")
             return
     if await rq.banned_user(user_id):
-        logger.warning(f"\nПользователь @{message.from_user.username} ID: {message.from_user.id} попытался использовать бот в бане.\n")
+        logger.warning(f"\nКористувач @{message.from_user.username} ID: {message.from_user.id} спробував використати бот у бані.\n")
     elif message.from_user.id in admins_id:
         await message.answer('Вітаю Вас у нашій команді.', reply_markup=kb.admin_menu)
     else:
@@ -65,12 +65,12 @@ async def cmd_start(message: Message, state: FSMContext):
 @router.message(UserActions.input_password)
 async def check_password(message: Message, state: FSMContext):
     user_id = message.from_user.id
-    logger.info(f"\n\nПользователь @{message.from_user.username} ID: {message.from_user.id} ввел пароль: {message.text}\n")
+    logger.info(f"\n\nКористувач @{message.from_user.username} ID: {message.from_user.id} ввів пароль: {message.text}\n")
     async with async_session() as session:
         user = await session.scalar(select(User).where(User.tg_id == user_id))
         attempts = user.attempts
         if message.text == password:
-            await message.answer("Пароль правильний. Ласкаво просимо!", reply_markup=kb.menu)
+            await message.answer("Пароль вірний. Ласкаво просимо!", reply_markup=kb.menu)
             user.attempts = 3
             await session.commit()
             await state.clear()
@@ -104,7 +104,7 @@ async def handle_search_message(message: Message):
 async def handle_search(message: Message, user_state: str):
     await rq.set_user(message.from_user.id, message.from_user.username)
     if await rq.banned_user(message.from_user.id):
-        logger.warning(f"\nПользователь @{message.from_user.username} ID: {message.from_user.id} попытался использовать бот в бане.\n")
+        logger.warning(f"\nКористувач @{message.from_user.username} ID: {message.from_user.id} спробував використати бот у бані.\n")
     else:
         if user_state == "input_number":
             number = message.text.replace(" ", "").replace("+", "").replace("-", "").replace("(", "").replace(")", "")
@@ -114,7 +114,7 @@ async def handle_search(message: Message, user_state: str):
                 pass
 
             username = message.from_user.username
-            logger.info(f"\nПользователь @{username} ID: {message.from_user.id} искал: {number}\n")
+            logger.info(f"\nКористувач @{username} ID: {message.from_user.id} шукав: {number}\n")
 
             if re.fullmatch(r"38\d{10}", number):
                 users_info = await rq.search_by_number(number)
@@ -139,7 +139,7 @@ async def handle_search(message: Message, user_state: str):
         elif user_state == "input_fio":
             looking_fio = message.text.strip()
             username = message.from_user.username
-            logger.info(f"\n\nПользователь @{username} ID: {message.from_user.id} искал: {looking_fio}\n")
+            logger.info(f"\n\nКористувач @{username} ID: {message.from_user.id} шукав: {looking_fio}\n")
             users = await rq.search_by_fio(looking_fio)
             if users:
                 response = "Знайдено таку інформацію:\n\n"
@@ -162,10 +162,10 @@ async def search_number(callback: CallbackQuery):
     user_id = callback.from_user.id
     user_state = await rq.get_user_state(callback.from_user.id)
     if await rq.banned_user(user_id):
-        logger.warning(f"\n\nВнимание! Пользователь: @{callback.from_user.username}, ID: {callback.from_user.id}\nПопытался использовать бот в бане.\n")
+        logger.warning(f"\n\nУвага! Користувач: @{callback.from_user.username} ID: {callback.from_user.id}\nСпробував використати бот у бані.\n")
     elif user_state == "login":
         await callback.answer("Введіть пароль для доступу!")
-        logger.warning(f"\n\nВнимание! Пользователь: @{callback.from_user.username}, ID: {callback.from_user.id}\nПопытался обойти пароль.\n")
+        logger.warning(f"\n\nУвага! Користувач: @{callback.from_user.username} ID: {callback.from_user.id}\nСпробував обійти пароль.\n")
     else:
         await callback.answer('')
         await callback.message.answer("Введіть номер телефону: 380ХХХХХХХХХ")
@@ -176,10 +176,10 @@ async def search_fio(callback: CallbackQuery):
     user_id = callback.from_user.id
     user_state = await rq.get_user_state(callback.from_user.id)
     if await rq.banned_user(user_id):
-        logger.warning(f"\n\nВнимание! Пользователь: @{callback.from_user.username}, ID: {callback.from_user.id}\nПопытался использовать бот в бане.\n")
+        logger.warning(f"\n\nУвага! Користувач: @{callback.from_user.username} ID: {callback.from_user.id}\nСпробував використати бот у бані.\n")
     elif user_state == "login":
         await callback.answer("Введіть пароль для доступу!")
-        logger.warning(f"\n\nВнимание! Пользователь: @{callback.from_user.username}, ID: {callback.from_user.id}\nПопытался обойти пароль.\n")
+        logger.warning(f"\n\nУвага! Користувач: @{callback.from_user.username} ID: {callback.from_user.id}\nСпробував обійти пароль.\n")
     else:
         await callback.answer('')
         await callback.message.answer("Введіть ПІБ або Прізвище:")
@@ -191,16 +191,16 @@ async def back_to_main(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     if await rq.banned_user(user_id):
         await callback.answer('')
-        logger.warning(f"\n\nВнимание! Пользователь: @{callback.from_user.username}, ID: {callback.from_user.id}\nПопытался использовать бот в бане.\n")
+        logger.warning(f"\n\nУвага! Користувач: @{callback.from_user.username} ID: {callback.from_user.id}\nСпробував використати бот у бані.\n")
     else:
         await callback.answer('')
         await rq.set_user_state(callback.from_user.id, "menu")
         if user_id in admins_id:
             await callback.message.delete()
-            await callback.message.answer("---------- Головне меню ----------\n\nВыберите действие:", reply_markup=kb.admin_menu)
+            await callback.message.answer("---------- Головне меню ----------\n\nВиберіть дію:", reply_markup=kb.admin_menu)
         else:
             await callback.message.delete()
-            await callback.message.answer("---------- Головне меню ----------\n\nВыберите действие:", reply_markup=kb.menu)
+            await callback.message.answer("---------- Головне меню ----------\n\nВиберіть дію:", reply_markup=kb.menu)
 
 
 @router.callback_query(F.data == "admin_panel")
@@ -208,7 +208,7 @@ async def admin_panel(callback: CallbackQuery, state: FSMContext):
     await rq.set_user_state(callback.from_user.id, "admin_panel")
     await state.clear()
     if await rq.banned_user(callback.from_user.id):
-        logger.warning(f"\n\nВнимание! Админ @{callback.from_user.username}, ID: {callback.from_user.id}\nПопытался использовать бот в бане.\n")
+        logger.warning(f"\n\nУвага! Адмін @{callback.from_user.username} ID: {callback.from_user.id}\nСпробував використати бот у бані.\n")
     else:
         await callback.answer('')
         await callback.message.delete()
@@ -219,7 +219,7 @@ async def add_user_start(callback: CallbackQuery, state: FSMContext):
     await rq.set_user_state(callback.from_user.id, "add_users")
     await state.clear()
     if await rq.banned_user(callback.from_user.id):
-        logger.warning(f"\n\nВнимание! Админ @{callback.from_user.username}, ID: {callback.from_user.id}\nПопытался использовать бот в бане.\n")
+        logger.warning(f"\n\nУвага! Адмін @{callback.from_user.username} ID: {callback.from_user.id}\nСпробував використати бот у бані.\n")
     else:
         await callback.answer('')
         await callback.message.answer("Введіть ПІБ:")
@@ -261,7 +261,7 @@ async def add_user_info(message: Message, state: FSMContext):
     data = await state.get_data()
     admin_username = message.from_user.username
     admin_id = message.from_user.id
-    logger.info(f"\n\nАдминистратор @{admin_username}, ID: {admin_id} добавил пользователя: {data}\n")
+    logger.info(f"\n\nАдміністратор @{admin_username} ID: {admin_id} добавив користувача: {data}\n")
     await rq.add_user_info(data)
     await message.answer("Інформація успішно додана!", reply_markup=kb.admin_panel)
     await state.clear()
@@ -275,7 +275,7 @@ class AdminActions(StatesGroup):
 async def ban_user_start(callback: CallbackQuery, state: FSMContext, bot: Bot):
     user_id = callback.from_user.id
     if await rq.banned_user(user_id):
-        logger.warning(f"\n\nВнимание! Админ @{callback.from_user.username} ID: {callback.from_user.id}\nПопытался использовать бот в бане.\n")
+        logger.warning(f"\n\nУвага! Адмін @{callback.from_user.username} ID: {callback.from_user.id}\nСпробував використати бот у бані.\n")
     else:
         await callback.answer('')
         await rq.set_user_state(callback.from_user.id, "ban_user")
@@ -291,7 +291,7 @@ async def ban_user_start(callback: CallbackQuery, state: FSMContext, bot: Bot):
 async def unban_user_start(callback: CallbackQuery, state: FSMContext, bot: Bot):
     user_id = callback.from_user.id
     if await rq.banned_user(user_id):
-        logger.warning(f"\n\nВнимание! Админ @{callback.from_user.username} ID: {callback.from_user.id}\nПопытался использовать бот в бане.\n")
+        logger.warning(f"\n\nУвага! Адмін @{callback.from_user.username} ID: {callback.from_user.id}\nСпробував використати бот у бані.\n")
     else:
         await callback.answer('')
         await rq.set_user_state(callback.from_user.id, "unban_user")
@@ -306,7 +306,7 @@ async def unban_user_start(callback: CallbackQuery, state: FSMContext, bot: Bot)
 @router.message(AdminActions.ban_user)
 async def ban_user_by_id(message: Message):
     if message.from_user.id not in admins_id:
-        logger.warning(f"\n\nПользователь @{message.from_user.username} ID: {message.from_user.id}\nПопытался использовать команду администратора.\n")
+        logger.warning(f"\n\nКористувач @{message.from_user.username} ID: {message.from_user.id}\nСпробував використати команду адміністратора.\n")
         return
     try:
         user_id_to_ban = int(message.text)
@@ -315,36 +315,36 @@ async def ban_user_by_id(message: Message):
         already = await rq.banned_user(user_id_to_ban)
         if user_id_to_ban in owners_id and admin_id not in owners_id:
             await message.answer("У Вас не вистачає прав для цієї дії!", reply_markup=kb.back_to_admin_menu)
-            logger.warning(f"\n\n!!!!!ВНИМАНИЕ!!!!!\nАдминистратор @{admin_username} ID: {admin_id} попытался забанить ВЛАДЕЛЬЦА с ID: {user_id_to_ban}\n")
+            logger.warning(f"\n\n!!!!!Увага!!!!!\nАдмиіністратор @{admin_username} ID: {admin_id} спробував заблокувати ВЛАСНИКА з ID: {user_id_to_ban}\n")
         elif user_id_to_ban in owners_id and admin_id in owners_id:
             success = await rq.ban_user(user_id_to_ban)
             if already:
                 await message.answer(f"ВЛАСНИК `{user_id_to_ban}` вже заблокован", reply_markup=kb.back_to_admin_menu, parse_mode="MarkdownV2")
-                logger.info(f"\n\nВЛАДЕЛЕЦ @{admin_username} ID: {admin_id} попытался забанить уже забаненого ВЛАДЕЛЬЦА с ID: {user_id_to_ban}\n")
+                logger.info(f"\n\nВЛАСНИК @{admin_username} ID: {admin_id} спробував заблокувати вже заблокованого ВЛАСНИКА з ID: {user_id_to_ban}\n")
             elif success:
                 await message.answer(f"Увага\\! Ви заблокували одного з ВЛАСНИКІВ бота\nID: `{user_id_to_ban}`", reply_markup=kb.back_to_admin_menu, parse_mode="MarkdownV2")
-                logger.info(f"\n\nВЛАДЕЛЕЦ @{admin_username} ID: {admin_id} забанил ВЛАДЕЛЬЦА с ID: {user_id_to_ban}\n")
+                logger.info(f"\n\nВЛАСНИК @{admin_username} ID: {admin_id} заблокував ВЛАСНИКА з ID: {user_id_to_ban}\n")
             else:
                 await message.answer(f"Користувач `{user_id_to_ban}` не знайдено у базі даних", reply_markup=kb.back_to_admin_menu, parse_mode="MarkdownV2")
-                logger.info(f"\n\nВЛАДЕЛЕЦ @{admin_username} ID: {admin_id} попытался забанить ВЛАДЕЛЬЦА с ID: {user_id_to_ban}\n")
+                logger.info(f"\n\nВЛАСНИК @{admin_username} ID: {admin_id} спробував заблокувати ВЛАСНИКА з ID: {user_id_to_ban}\n")
         else:
             success = await rq.ban_user(user_id_to_ban)
             if already:
                 await message.answer(f"Користувач `{user_id_to_ban}` вже заблокован", reply_markup=kb.back_to_admin_menu, parse_mode="MarkdownV2")
-                logger.info(f"\n\nАдминистратор @{admin_username} ID: {admin_id} попытался забанить уже забаненого пользователя с ID: {user_id_to_ban}\n")
+                logger.info(f"\n\nАдміністратор @{admin_username} ID: {admin_id} спробував заблокувати вже заблокованого користувача з ID: {user_id_to_ban}\n")
             elif success:
                 await message.answer(f"Користувач `{user_id_to_ban}` успішно заблокован", reply_markup=kb.back_to_admin_menu, parse_mode="MarkdownV2")
-                logger.info(f"\n\nАдминистратор @{admin_username} ID: {admin_id} забанил пользователя с ID: {user_id_to_ban}\n")
+                logger.info(f"\n\nАдміністратор @{admin_username} ID: {admin_id} заблокував користувача з ID: {user_id_to_ban}\n")
             else:
                 await message.answer(f"Користувач `{user_id_to_ban}` не знайденно у базі даних", reply_markup=kb.back_to_admin_menu, parse_mode="MarkdownV2")
-                logger.info(f"\n\nАдминистратор @{admin_username} ID: {admin_id} попытался забанить пользователя с ID: {user_id_to_ban}\n")
+                logger.info(f"\n\nАдміністратор @{admin_username} ID: {admin_id} спробував заблокувати користувача з ID: {user_id_to_ban}\n")
     except ValueError:
         await message.answer("Неправильний формат. Введіть числовий ID:", reply_markup=kb.back_to_admin_menu)
 
 @router.message(AdminActions.unban_user)
 async def unban_user_by_id(message: Message):
     if message.from_user.id not in admins_id:
-        logger.warning(f"\n\nПользователь @{message.from_user.username} ID: {message.from_user.id}\nПопытался использовать команду администратора.\n")
+        logger.warning(f"\n\nКористувач @{message.from_user.username} ID: {message.from_user.id}\nСпробував використати команду адміністратора.\n")
         return
     try:
         user_id_to_unban = int(message.text)
@@ -354,14 +354,13 @@ async def unban_user_by_id(message: Message):
         success = await rq.unban_user(user_id_to_unban)
         if not already:
             await message.answer(f"Користувач `{user_id_to_unban}` вже розблоковано", reply_markup=kb.back_to_admin_menu, parse_mode="MarkdownV2")
-            logger.info(f"\n\nАдминистратор @{admin_username} ID: {admin_id} попытался разбанить уже разбаненого пользователя с ID: {user_id_to_unban}\n")
+            logger.info(f"\n\nАдміністратор @{admin_username} ID: {admin_id} спробував розблокував вже розблокованого користувача з ID: {user_id_to_unban}\n")
         elif success:
             await message.answer(f"Користувач `{user_id_to_unban}` успішно разблокован", reply_markup=kb.back_to_admin_menu, parse_mode="MarkdownV2")
-            logger.info(f"\n\nАдминистратор @{admin_username} ID: {admin_id} разбанил пользователя с ID: {user_id_to_unban}\n")
+            logger.info(f"\n\nАдміністратор @{admin_username} ID: {admin_id} розблокував користувача з ID: {user_id_to_unban}\n")
         else:
             await message.answer(f"Користувач `{user_id_to_unban}` не знайденно у базі даних", reply_markup=kb.back_to_admin_menu, parse_mode="MarkdownV2")
-            logger.info(f"\n\nАдминистратор @{admin_username} ID: {admin_id} попытался разбанить пользователя с ID: {user_id_to_unban}\n")
+            logger.info(f"\n\nАдміністратор @{admin_username} ID: {admin_id} спробував розблокувати користувача з ID: {user_id_to_unban}\n")
     except ValueError:
         await message.answer("Неправильний формат. Введіть числовий ID:", reply_markup=kb.back_to_admin_menu)
-
 
